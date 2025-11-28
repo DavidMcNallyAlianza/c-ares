@@ -44,10 +44,6 @@ list. It will only be retried according to the retry chance and delay settings
 for the minimum number of consecutive successes, it is promoted back to healthy
 status and restored to its original priority.
 
-These values can be set either at initialization time using
-\fBARES_OPT_SERVER_RISE_FALL\fP in \fBares_init_options(3)\fP, or dynamically
-at runtime using these functions.
-
 .SH EXAMPLE
 .nf
 ares_channel_t *channel;

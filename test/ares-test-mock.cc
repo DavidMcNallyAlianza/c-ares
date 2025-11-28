@@ -2534,8 +2534,11 @@ class ServerRiseFallMultiMockTest
    ServerRiseFallMultiMockTest()
      : MockChannelOptsTest(2, GetParam().first, GetParam().second, false,
                            FillOptions(&opts_),
-                           ARES_OPT_SERVER_FAILOVER | ARES_OPT_NOROTATE |
-                             ARES_OPT_SERVER_RISE_FALL) {}
+                           ARES_OPT_SERVER_FAILOVER | ARES_OPT_NOROTATE) {
+    /* Set rise/fall thresholds using the set functions */
+    ares_set_min_server_successes(channel_, 2);
+    ares_set_max_server_failures(channel_, 2);
+  }
   void CheckExample() {
     HostResult result;
     ares_gethostbyname(channel_, "www.example.com.", AF_INET, HostCallback, &result);
@@ -2550,8 +2553,6 @@ class ServerRiseFallMultiMockTest
     memset(opts, 0, sizeof(struct ares_options));
     opts->server_failover_opts.retry_chance = 1;
     opts->server_failover_opts.retry_delay = SERVER_FAILOVER_RETRY_DELAY;
-    opts->server_failover_opts.min_consec_successes = 2;
-    opts->server_failover_opts.max_consec_failures = 2;
     return opts;
   }
 

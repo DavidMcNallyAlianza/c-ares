@@ -241,10 +241,8 @@ static ares_status_t init_by_defaults(ares_channel_t *channel)
   }
 
   /* Set default fields for server rise/fall behavior */
-  if (!(channel->optmask & ARES_OPT_SERVER_RISE_FALL)) {
-    channel->min_consec_successes = DEFAULT_SERVER_MIN_SUCCESSES;
-    channel->max_consec_failures  = DEFAULT_SERVER_MAX_FAILURES;
-  }
+  channel->min_consec_successes = DEFAULT_SERVER_MIN_SUCCESSES;
+  channel->max_consec_failures  = DEFAULT_SERVER_MAX_FAILURES;
 
 error:
   if (hostname) {

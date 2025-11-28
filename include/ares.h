@@ -265,7 +265,6 @@ typedef enum {
 #define ARES_OPT_QUERY_CACHE      (1 << 21)
 #define ARES_OPT_EVENT_THREAD     (1 << 22)
 #define ARES_OPT_SERVER_FAILOVER  (1 << 23)
-#define ARES_OPT_SERVER_RISE_FALL (1 << 24)
 
 /* Nameinfo flag values */
 #define ARES_NI_NOFQDN        (1 << 0)
@@ -346,16 +345,10 @@ struct apattern;
  * to.
  * The retry delay is the minimum time in milliseconds to wait between doing
  * such retries (applied per-server).
- * The min_consec_successes is the minimum number of consecutive successful
- * queries before a server is considered "up" again.
- * The max_consec_failures is the maximum number of consecutive failed
- * queries before a server is considered "down".
  */
 struct ares_server_failover_options {
   unsigned short retry_chance;
   size_t         retry_delay;
-  size_t         min_consec_successes;
-  size_t         max_consec_failures;
 };
 
 /* NOTE about the ares_options struct to users and developers.
