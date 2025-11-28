@@ -149,19 +149,16 @@ static void server_increment_successes(ares_server_t *server,
     return; /* LCOV_EXCL_LINE: DefensiveCoding */
   }
 
-  if (server->consec_failures > 0) {
-    server->consec_failures = 0;
-    reinsert                = ARES_TRUE;
-  }
-
   server->consec_successes++;
-  if (server->consec_failures >= channel->max_consec_failures &&
-      server->consec_successes >= channel->min_consec_successes) {
-    server->consec_failures = 0;
-    reinsert                = ARES_TRUE;
-  }
 
-  if (reinsert) {
+  /* Reset the count of consecutive failures and reinsert if:
+   *   we had some failures but were not yet failing, OR
+   *   we were failing but have now had enough successes to not be */
+  if ((server->consec_failures > 0 &&
+       server->consec_failures < channel->max_consec_failures) ||
+      (server->consec_failures >= channel->max_consec_failures &&
+       server->consec_successes >= channel->min_consec_successes)) {
+    server->consec_failures = 0;
     ares_slist_node_reinsert(node);
   }
 
