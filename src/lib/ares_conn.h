@@ -147,7 +147,6 @@ struct ares_server {
                                            * can be hard errors or timeouts
                                            */
   size_t                consec_successes; /* Consecutive query success count */
-  ares_bool_t           is_failed;        /* Whether this server is failed */
   ares_bool_t           probe_pending;    /* Whether a probe is pending for this
                                            * server due to prior failures */
   ares_llist_t         *connections;

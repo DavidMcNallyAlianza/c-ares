@@ -126,10 +126,6 @@ static void server_increment_failures(ares_server_t *server,
   server->consec_successes = 0;
   server->consec_failures++;
 
-  if (server->consec_failures >= channel->max_consec_failures) {
-    server->is_failed = ARES_TRUE;
-  }
-
   ares_slist_node_reinsert(node);
 
   ares_tvnow(&next_retry_time);
@@ -159,10 +155,10 @@ static void server_increment_successes(ares_server_t *server,
   }
 
   server->consec_successes++;
-  if (server->is_failed &&
+  if (server->consec_failures >= channel->max_consec_failures &&
       server->consec_successes >= channel->min_consec_successes) {
-    server->is_failed = ARES_FALSE;
-    reinsert          = ARES_TRUE;
+    server->consec_failures = 0;
+    reinsert                = ARES_TRUE;
   }
 
   if (reinsert) {
@@ -991,7 +987,7 @@ static size_t count_not_failed_servers(const ares_channel_t *channel)
        node = ares_slist_node_next(node)) {
     const ares_server_t *server = ares_slist_node_val(node);
 
-    if (server->is_failed) {
+    if (server->consec_failures >= channel->max_consec_failures) {
       /* We have hit a failed server, stop counting */
       break;
     }
@@ -1114,7 +1110,7 @@ static void ares_probe_failed_server(ares_channel_t      *channel,
 
   /* If no servers have failures, or we're not configured with a server retry
    * chance, then nothing to probe */
-  if ((last_server != NULL && !last_server->is_failed) ||
+  if ((last_server != NULL && last_server->consec_failures < channel->max_consec_failures) ||
       channel->server_retry_chance == 0) {
     return;
   }
@@ -1138,7 +1134,8 @@ static void ares_probe_failed_server(ares_channel_t      *channel,
   for (node = ares_slist_node_first(channel->servers); node != NULL;
        node = ares_slist_node_next(node)) {
     ares_server_t *node_val = ares_slist_node_val(node);
-    if (node_val != NULL && node_val->is_failed && !node_val->probe_pending &&
+    if (node_val != NULL && node_val->consec_failures >= channel->max_consec_failures &&
+        !node_val->probe_pending &&
         ares_timedout(&now, &node_val->next_retry_time) && node_val != server) {
       /* Enqueue an identical query onto the specified server without honoring
        * the cache or allowing retries.  We want to make sure it only attempts
@@ -1300,7 +1297,7 @@ ares_server_t *ares_select_server(ares_channel_t *channel, ares_query_t *query)
     for (node = ares_slist_node_first(channel->servers); node != NULL;
          node = ares_slist_node_next(node)) {
       potential_server = ares_slist_node_val(node);
-      if (!potential_server->is_failed ||
+      if (potential_server->consec_failures < channel->max_consec_failures ||
           !ares_query_sent_to_server(query, potential_server->idx)) {
         server = potential_server;
         break;
@@ -1319,7 +1316,7 @@ ares_server_t *ares_select_server(ares_channel_t *channel, ares_query_t *query)
   /* If we have selected a failed server, we need to add it to the list of
    * servers that have been attempted.  This is used to prevent us from
    * trying the same failed server repeatedly without trying others. */
-  if (server != NULL && server->is_failed &&
+  if (server != NULL && server->consec_failures >= channel->max_consec_failures &&
       !ares_query_sent_to_server(query, server->idx)) {
     status = ares_array_insert_last((void **)&server_idx,
                                     query->failed_servers_attempted);

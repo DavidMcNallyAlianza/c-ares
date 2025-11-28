@@ -97,29 +97,26 @@ static int server_sort_cb(const void *data1, const void *data2)
   const ares_server_t *s2 = data2;
 
   /* The logic for sorting is as follows:
-   * 1. Failed servers are sorted to the end of the list.
-   * 2. Among non-failed servers, sort by index in the original list.
-   * 3. Among failed servers, sort by consecutive failures then index.
+   * 1. If comparing servers with failures, sort by number of successes, if any.
+   * 2a. Among servers with failures and no successes, sort by number of failures.
+   * 2b. When one or both servers have no failures, also sort by number of failures.
+   *     (This ensures that servers without failures are always sorted first.)
    */
-  if (!s1->is_failed && s2->is_failed) {
+  if (s2->consec_failures && s1->consec_failures) {
+    /* See if connection is coming back online but hasn't hit the rise limit */
+    if (s1->consec_successes > s2->consec_successes) {
+      return -1;
+    }
+    if (s1->consec_successes < s2->consec_successes) {
+      return 1;
+    }
+  }
+  if (s1->consec_failures < s2->consec_failures) {
     return -1;
   }
-  if (s1->is_failed && !s2->is_failed) {
+  if (s1->consec_failures > s2->consec_failures) {
     return 1;
   }
-  if (s1->is_failed && s1->consec_failures < s2->consec_failures) {
-    return -1;
-  }
-  if (s1->is_failed && s1->consec_failures > s2->consec_failures) {
-    return 1;
-  }
-  if (s1->idx < s2->idx) {
-    return -1;
-  }
-  if (s1->idx > s2->idx) {
-    return 1;
-  }
-
 
   return 0;
 }
