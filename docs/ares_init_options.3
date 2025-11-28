@@ -363,8 +363,9 @@ field in the
 structure, as follows:
 .TP 23
 .B ARES_OPT_ROTATE
-Perform round-robin selection of the nameservers configured for the channel
-for each resolution.
+Perform round-robin selection among healthy nameservers for load balancing.
+When all servers have failed, the best available server (based on health
+metrics) will be selected.
 .TP 23
 .B ARES_OPT_NOROTATE
 Do not perform round-robin nameserver selection; always use the list of
