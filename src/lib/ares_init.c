@@ -619,3 +619,49 @@ int ares_set_sortlist(ares_channel_t *channel, const char *sortstr)
   ares_channel_unlock(channel);
   return (int)status;
 }
+
+void ares_set_min_server_successes(ares_channel_t *channel,
+                                   unsigned int    minimum_successes)
+{
+  if (channel == NULL) {
+    return;
+  }
+  ares_channel_lock(channel);
+  channel->min_consec_successes = minimum_successes;
+  ares_channel_unlock(channel);
+}
+
+unsigned int ares_get_min_server_successes(ares_channel_t *channel)
+{
+  unsigned int value;
+  if (channel == NULL) {
+    return 0;
+  }
+  ares_channel_lock(channel);
+  value = (unsigned int)channel->min_consec_successes;
+  ares_channel_unlock(channel);
+  return value;
+}
+
+void ares_set_max_server_failures(ares_channel_t *channel,
+                                  unsigned int    maximum_failures)
+{
+  if (channel == NULL) {
+    return;
+  }
+  ares_channel_lock(channel);
+  channel->max_consec_failures = maximum_failures;
+  ares_channel_unlock(channel);
+}
+
+unsigned int ares_get_max_server_failures(ares_channel_t *channel)
+{
+  unsigned int value;
+  if (channel == NULL) {
+    return 0;
+  }
+  ares_channel_lock(channel);
+  value = (unsigned int)channel->max_consec_failures;
+  ares_channel_unlock(channel);
+  return value;
+}
