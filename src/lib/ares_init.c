@@ -97,13 +97,16 @@ static int server_sort_cb(const void *data1, const void *data2)
   const ares_server_t *s2 = data2;
 
   /* The logic for sorting is as follows:
-   * 1. If comparing servers with failures, sort by number of successes, if any.
-   * 2a. Among servers with failures and no successes, sort by number of failures.
-   * 2b. When one or both servers have no failures, also sort by number of failures.
-   *     (This ensures that servers without failures are always sorted first.)
-   * 3. Use server index as final tiebreaker.
+   * 1. If comparing two servers with failures above the threshold, sort by number of successes, if any.
+   * 2. If at least one server has failures above the threshold, sort by number of failures.
+   *    (This ensures that servers below the threshold are always sorted first.)
+   *    (It also means that two servers both above the threshold with no successes
+   *      are sorted by number of failures.)
+   * 3. If neither server is above the threshold, or other criteria are equal, sort by
+   *    configuration order.
    */
-  if (s2->consec_failures && s1->consec_failures) {
+  if (s2->consec_failures >= channel->max_consec_failures &&
+      s1->consec_failures >= channel->max_consec_failures) {
     /* See if connection is coming back online but hasn't hit the rise limit */
     if (s1->consec_successes > s2->consec_successes) {
       return -1;
@@ -113,11 +116,15 @@ static int server_sort_cb(const void *data1, const void *data2)
     }
   }
 
-  if (s1->consec_failures < s2->consec_failures) {
-    return -1;
-  }
-  if (s1->consec_failures > s2->consec_failures) {
-    return 1;
+  if (s1->consec_failures >= channel->max_consec_failures ||
+      s2->consec_failures >= channel->max_consec_failures) {
+
+    if (s1->consec_failures < s2->consec_failures) {
+      return -1;
+    }
+    if (s1->consec_failures > s2->consec_failures) {
+      return 1;
+    }
   }
 
   if (s1->idx < s2->idx) {
