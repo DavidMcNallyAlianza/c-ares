@@ -126,6 +126,30 @@ static void server_increment_failures(ares_server_t *server,
   server->consec_successes = 0;
   server->consec_failures++;
 
+  /* If this server just crossed the failure threshold and all servers are now
+   * failed, minimuse all servers' failure counts to the threshold. This ensures
+   * that we will now attempt all servers in a round-robin fashion, even if some
+   * have not been healthy since the last total outage.
+  */
+  if (server->consec_failures == channel->max_consec_failures &&
+      count_not_failed_servers(channel) == 0) {
+    ares_slist_node_t *check_node;
+
+    /* Clamp all other servers' failure counts to threshold */
+    for (check_node = ares_slist_node_first(channel->servers);
+         check_node != NULL; check_node = ares_slist_node_next(check_node)) {
+      ares_server_t *other_server = ares_slist_node_val(check_node);
+      if (other_server != server) {
+        other_server->consec_failures =
+          (other_server->consec_failures < channel->max_consec_failures)
+            ? other_server->consec_failures
+            : channel->max_consec_failures;
+        /* Reinsert to update sort position */
+        ares_slist_node_reinsert(check_node);
+      }
+    }
+  }
+
   ares_slist_node_reinsert(node);
 
   ares_tvnow(&next_retry_time);
