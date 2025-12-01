@@ -2844,6 +2844,88 @@ TEST_P(NoRotateSelectionMockTest, DontRepeatFailedServer) {
     CheckExample();
 }
 
+// Test case to verify that the probe_pending flag is cleared when probe response
+// causes a requeue (e.g. SERVFAIL). This tests the fix where probe_pending
+// clearing was moved from end_query() to process_answer()'s cleanup section.
+// Without the fix, probe_pending would stay TRUE after a SERVFAIL probe response,
+// blocking all future probes to that server.
+TEST_P(NoRotateSelectionMockTest, ProbePendingClearedOnRequeue) {
+  DNSPacket servfailrsp;
+  servfailrsp.set_response().set_aa().set_rcode(SERVFAIL)
+    .add_question(new DNSQuestion("www.example.com", T_A));
+  DNSPacket okrsp;
+  okrsp.set_response().set_aa()
+    .add_question(new DNSQuestion("www.example.com", T_A))
+    .add_answer(new DNSARR("www.example.com", 100, {2,3,4,5}));
+
+  auto tv_begin = std::chrono::high_resolution_clock::now();
+  auto tv_now   = std::chrono::high_resolution_clock::now();
+  unsigned int delay_ms;
+
+  // Fail server #0 to mark it as down (>= max_consec_failures).
+  // This will cause server #0 to be demoted and server #1 promoted.
+  tv_now = std::chrono::high_resolution_clock::now();
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: Failing Server0 to mark as down" << std::endl;
+  EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &servfailrsp));
+  EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &okrsp));
+  CheckExample();
+
+  // Sleep past retry delay and send another query. This will:
+  // 1. Send real query to server #1 (healthy)
+  // 2. Trigger a probe to server #0 (failed), which responds with SERVFAIL
+  // The SERVFAIL causes the probe query to be requeued, which calls
+  // end_query(channel, NULL, ...) with a NULL server pointer.
+  //
+  // OLD BEHAVIOR: probe_pending flag stays TRUE because end_query() receives NULL server
+  // NEW BEHAVIOR: probe_pending cleared in process_answer() cleanup before requeue
+  tv_now = std::chrono::high_resolution_clock::now();
+  delay_ms = SERVER_FAILOVER_RETRY_DELAY + (SERVER_FAILOVER_RETRY_DELAY / 10);
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: sleep " << delay_ms << "ms" << std::endl;
+  ares_sleep_time(delay_ms);
+  tv_now = std::chrono::high_resolution_clock::now();
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: First probe to Server0 (returns SERVFAIL), Server1 responds OK" << std::endl;
+  EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &servfailrsp));
+  EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &okrsp));
+  CheckExample();
+
+  // THE KEY TEST: Sleep again and verify another probe can be sent.
+  // With the old code (probe_pending clearing in end_query with NULL check),
+  // this second probe would NOT happen because probe_pending is stuck at TRUE.
+  // With the new code (probe_pending clearing in process_answer cleanup),
+  // this second probe WILL happen because the flag was properly cleared.
+  tv_now = std::chrono::high_resolution_clock::now();
+  delay_ms = SERVER_FAILOVER_RETRY_DELAY + (SERVER_FAILOVER_RETRY_DELAY / 10);
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: sleep " << delay_ms << "ms" << std::endl;
+  ares_sleep_time(delay_ms);
+  tv_now = std::chrono::high_resolution_clock::now();
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: Second probe should be sent (proves flag was cleared)" << std::endl;
+
+  // This expectation will FAIL with old code (no probe sent), PASS with new code
+  EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &servfailrsp));
+  EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &okrsp));
+  CheckExample();
+
+  // For extra verification, do a third probe to confirm the pattern continues
+  tv_now = std::chrono::high_resolution_clock::now();
+  delay_ms = SERVER_FAILOVER_RETRY_DELAY + (SERVER_FAILOVER_RETRY_DELAY / 10);
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: sleep " << delay_ms << "ms" << std::endl;
+  ares_sleep_time(delay_ms);
+  tv_now = std::chrono::high_resolution_clock::now();
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: Third probe should also be sent" << std::endl;
+
+  EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &servfailrsp));
+  EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[1].get(), &okrsp));
+  CheckExample();
+}
+
 
 class RotateSelectionMockTest
   : public MockChannelOptsTest,
