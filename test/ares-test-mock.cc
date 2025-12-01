@@ -2826,20 +2826,21 @@ TEST_P(NoRotateSelectionMockTest, DontRepeatFailedServer) {
   EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
     .WillOnce(SetReply(servers_[1].get(), &okrsp));
   CheckExample();
-  
-  // Send in another query - don't wait for probes. This should result in the following selection order:
-  // #1 (status: up, failures 0) (over #0 (status: down failures 3))
-  // #1 (status: down failures 1) (over #0 (status: down failures 3))
-  // #0 (status: down, failures 3) (over #1 (status: down failures 2) as we have already selected #1)
-  // #1 (status: down, failures 2) (over #0 (status: down failures 4) as all servers have been tried)
+
+  // Send in another query - don't wait for probes. The system will keep trying the server
+  // with fewer failures until failure counts equalize. This results in:
+  // #1 (status: up, failures 0) - tried, fails -> failures=1
+  // #1 (status: down, failures 1) - tried again (fewer than #0's 3), fails -> failures=2
+  // #1 (status: down, failures 2) - tried again (fewer than #0's 3), fails -> failures=3
+  // #0 (status: down, failures 3) - now tied, index tiebreaker makes #0 first, succeeds
   tv_now = std::chrono::high_resolution_clock::now();
-  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: Server 1 will fail for the real query (twice) and server 0 will fail" << std::endl;
-  EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
-    .WillOnce(SetReply(servers_[0].get(), &servfailrsp));
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: Server 1 will fail three times, then server 0 will succeed" << std::endl;
   EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
     .WillOnce(SetReply(servers_[1].get(), &servfailrsp))
     .WillOnce(SetReply(servers_[1].get(), &servfailrsp))
-    .WillOnce(SetReply(servers_[1].get(), &okrsp));
+    .WillOnce(SetReply(servers_[1].get(), &servfailrsp));
+  EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))
+    .WillOnce(SetReply(servers_[0].get(), &okrsp));
     CheckExample();
 }
 
@@ -2852,7 +2853,7 @@ class RotateSelectionMockTest
     : MockChannelOptsTest(2, GetParam().first, GetParam().second, false,
                           FillOptions(&opts_),
                           ARES_OPT_SERVER_FAILOVER | ARES_OPT_ROTATE) {}
-                          
+
   void CheckRepeated() {
     HostResult result;
     // Send 10 queries to ensure that all servers are selected.
@@ -2926,7 +2927,7 @@ TEST_P(RotateSelectionMockTest, RotateDoesntRepeatFailedServer) {
   unsigned int delay_ms;
 
   // At start all servers are healthy and any server could be selected.
-  // After the first query, the server will be marked as failed and 
+  // After the first query, the server will be marked as failed and
   // the next query will be sent to the other server. After that, the next
   // two queries will be split among the two servers (as failed servers
   // aren't repeated). Finally, the last query will be sent successfully to
