@@ -93,8 +93,9 @@ static int ares_query_timeout_cmp_cb(const void *arg1, const void *arg2)
 
 static int server_sort_cb(const void *data1, const void *data2)
 {
-  const ares_server_t *s1 = data1;
-  const ares_server_t *s2 = data2;
+  const ares_server_t  *s1      = data1;
+  const ares_server_t  *s2      = data2;
+  const ares_channel_t *channel = s1->channel;
 
   /* The logic for sorting is as follows:
    * 1. If comparing two servers with failures above the threshold, sort by number of successes, if any.
