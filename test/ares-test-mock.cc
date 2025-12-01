@@ -2827,16 +2827,19 @@ TEST_P(NoRotateSelectionMockTest, DontRepeatFailedServer) {
     .WillOnce(SetReply(servers_[1].get(), &okrsp));
   CheckExample();
 
-  // Send in another query - don't wait for probes. The system will keep trying the server
-  // with fewer failures until failure counts equalize. This results in:
-  // #1 (status: up, failures 0) - tried, fails -> failures=1
-  // #1 (status: down, failures 1) - tried again (fewer than #0's 3), fails -> failures=2
-  // #1 (status: down, failures 2) - tried again (fewer than #0's 3), fails -> failures=3
-  // #0 (status: down, failures 3) - now tied, index tiebreaker makes #0 first, succeeds
+  // Send in another query - don't wait for probes. Server #1 has fewer failures (0 vs 3)
+  // so it will be tried first. When it fails and crosses the threshold, the clamping
+  // logic triggers, reducing Server #0's failure count from 3 to 2 (threshold+1).
+  // This results in:
+  // #1 (status: up, failures 0) - tried, fails -> failures=1 (threshold reached)
+  //   Clamping triggers: #0 failures reduced from 3 to 2
+  // Now: #1 (failures: 1), #0 (failures: 2)
+  // #1 has fewer failures, so tried again, fails -> failures=2
+  // Now tied at 2 failures, so index tiebreaker applies
+  // #0 (status: down, failures 2, index 0) - tried next due to lower index, succeeds
   tv_now = std::chrono::high_resolution_clock::now();
-  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: Server 1 will fail three times, then server 0 will succeed" << std::endl;
+  if (verbose) std::cerr << std::chrono::duration_cast<std::chrono::milliseconds>(tv_now - tv_begin).count() << "ms: Server 1 will fail twice (first triggers clamping), then server 0 will succeed" << std::endl;
   EXPECT_CALL(*servers_[1], OnRequest("www.example.com", T_A))
-    .WillOnce(SetReply(servers_[1].get(), &servfailrsp))
     .WillOnce(SetReply(servers_[1].get(), &servfailrsp))
     .WillOnce(SetReply(servers_[1].get(), &servfailrsp));
   EXPECT_CALL(*servers_[0], OnRequest("www.example.com", T_A))

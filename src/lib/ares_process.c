@@ -46,6 +46,7 @@
 
 
 static void          timeadd(ares_timeval_t *now, size_t millisecs);
+static size_t        count_not_failed_servers(const ares_channel_t *channel);
 static ares_status_t process_write(ares_channel_t *channel,
                                    ares_socket_t   write_fd);
 static ares_status_t process_read(ares_channel_t       *channel,
@@ -135,15 +136,15 @@ static void server_increment_failures(ares_server_t *server,
       count_not_failed_servers(channel) == 0) {
     ares_slist_node_t *check_node;
 
-    /* Clamp all other servers' failure counts to threshold */
+    /* Clamp all other servers' failure counts to threshold+1  */
     for (check_node = ares_slist_node_first(channel->servers);
          check_node != NULL; check_node = ares_slist_node_next(check_node)) {
       ares_server_t *other_server = ares_slist_node_val(check_node);
       if (other_server != server) {
         other_server->consec_failures =
-          (other_server->consec_failures < channel->max_consec_failures)
+          (other_server->consec_failures < channel->max_consec_failures + 1)
             ? other_server->consec_failures
-            : channel->max_consec_failures;
+            : channel->max_consec_failures + 1;
         /* Reinsert to update sort position */
         ares_slist_node_reinsert(check_node);
       }
