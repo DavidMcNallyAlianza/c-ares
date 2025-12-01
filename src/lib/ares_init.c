@@ -101,6 +101,7 @@ static int server_sort_cb(const void *data1, const void *data2)
    * 2a. Among servers with failures and no successes, sort by number of failures.
    * 2b. When one or both servers have no failures, also sort by number of failures.
    *     (This ensures that servers without failures are always sorted first.)
+   * 3. Use server index as final tiebreaker.
    */
   if (s2->consec_failures && s1->consec_failures) {
     /* See if connection is coming back online but hasn't hit the rise limit */
@@ -111,10 +112,18 @@ static int server_sort_cb(const void *data1, const void *data2)
       return 1;
     }
   }
+
   if (s1->consec_failures < s2->consec_failures) {
     return -1;
   }
   if (s1->consec_failures > s2->consec_failures) {
+    return 1;
+  }
+
+  if (s1->idx < s2->idx) {
+    return -1;
+  }
+  if (s1->idx > s2->idx) {
     return 1;
   }
 
