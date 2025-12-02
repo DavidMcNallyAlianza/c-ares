@@ -658,7 +658,6 @@ static ares_status_t ares_server_create(ares_channel_t       *channel,
   server->addr.family = sconfig->addr.family;
   server->next_retry_time.sec  = 0;
   server->next_retry_time.usec = 0;
-  server->is_failed            = ARES_FALSE;
 
   if (sconfig->addr.family == AF_INET) {
     memcpy(&server->addr.addr.addr4, &sconfig->addr.addr.addr4,

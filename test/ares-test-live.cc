@@ -272,10 +272,9 @@ TEST_P(DefaultChannelModeTest, LiveGetLocalhostByAddrV4) {
     EXPECT_LT(0, (int)result.host_.addrs_.size());
     EXPECT_EQ(AF_INET, result.host_.addrtype_);
     // oddly, travis does not resolve to localhost, but a random hostname starting with travis-job
-    // Some environments return their actual hostname for 127.0.0.1, so just verify we got something
-    if (result.host_.name_.find("travis-job") == SIZE_MAX && 
-        result.host_.name_.find("localhost") == SIZE_MAX) {
-        EXPECT_NE(SIZE_MAX, result.host_.name_.size());
+    if (result.host_.name_.find("travis-job") == SIZE_MAX) {
+        EXPECT_NE(SIZE_MAX,
+                  result.host_.name_.find("localhost"));
     }
   }
 }
@@ -293,10 +292,8 @@ TEST_P(DefaultChannelModeTest, LiveGetLocalhostByAddrV6) {
     EXPECT_LT(0, (int)result.host_.addrs_.size());
     EXPECT_EQ(AF_INET6, result.host_.addrtype_);
     const std::string& name = result.host_.name_;
-    // Some environments return their actual hostname, so just verify we got something
     EXPECT_TRUE(SIZE_MAX != name.find("localhost") ||
-                SIZE_MAX != name.find("ip6-loopback") ||
-                name.size() > 0);
+                SIZE_MAX != name.find("ip6-loopback"));
   }
 }
 

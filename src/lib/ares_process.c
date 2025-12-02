@@ -46,6 +46,7 @@
 
 
 static void          timeadd(ares_timeval_t *now, size_t millisecs);
+static size_t        count_not_failed_servers(const ares_channel_t *channel);
 static ares_status_t process_write(ares_channel_t *channel,
                                    ares_socket_t   write_fd);
 static ares_status_t process_read(ares_channel_t       *channel,
@@ -126,8 +127,28 @@ static void server_increment_failures(ares_server_t *server,
   server->consec_successes = 0;
   server->consec_failures++;
 
-  if (server->consec_failures >= channel->max_consec_failures) {
-    server->is_failed = ARES_TRUE;
+  /* If this server just crossed the failure threshold and all servers are now
+   * failed, minimuse all servers' failure counts to the threshold. This ensures
+   * that we will now attempt all servers in a round-robin fashion, even if some
+   * have not been healthy since the last total outage.
+  */
+  if (server->consec_failures == channel->max_consec_failures &&
+      count_not_failed_servers(channel) == 0) {
+    ares_slist_node_t *check_node;
+
+    /* Clamp all other servers' failure counts to threshold+1  */
+    for (check_node = ares_slist_node_first(channel->servers);
+         check_node != NULL; check_node = ares_slist_node_next(check_node)) {
+      ares_server_t *other_server = ares_slist_node_val(check_node);
+      if (other_server != server) {
+        other_server->consec_failures =
+          (other_server->consec_failures < channel->max_consec_failures + 1)
+            ? other_server->consec_failures
+            : channel->max_consec_failures + 1;
+        /* Reinsert to update sort position */
+        ares_slist_node_reinsert(check_node);
+      }
+    }
   }
 
   ares_slist_node_reinsert(node);
@@ -145,27 +166,23 @@ static void server_increment_successes(ares_server_t *server,
                                        ares_bool_t    used_tcp)
 {
   ares_slist_node_t    *node;
-  const ares_channel_t *channel  = server->channel;
-  ares_bool_t           reinsert = ARES_FALSE;
+  const ares_channel_t *channel = server->channel;
 
   node = ares_slist_node_find(channel->servers, server);
   if (node == NULL) {
     return; /* LCOV_EXCL_LINE: DefensiveCoding */
   }
 
-  if (server->consec_failures > 0) {
-    server->consec_failures = 0;
-    reinsert                = ARES_TRUE;
-  }
-
   server->consec_successes++;
-  if (server->is_failed &&
-      server->consec_successes >= channel->min_consec_successes) {
-    server->is_failed = ARES_FALSE;
-    reinsert          = ARES_TRUE;
-  }
 
-  if (reinsert) {
+  /* Reset the count of consecutive failures and reinsert if:
+   *   we had some failures but were not yet failing, OR
+   *   we were failing but have now had enough successes to not be */
+  if ((server->consec_failures > 0 &&
+       server->consec_failures < channel->max_consec_failures) ||
+      (server->consec_failures >= channel->max_consec_failures &&
+       server->consec_successes >= channel->min_consec_successes)) {
+    server->consec_failures = 0;
     ares_slist_node_reinsert(node);
   }
 
@@ -991,7 +1008,7 @@ static size_t count_not_failed_servers(const ares_channel_t *channel)
        node = ares_slist_node_next(node)) {
     const ares_server_t *server = ares_slist_node_val(node);
 
-    if (server->is_failed) {
+    if (server->consec_failures >= channel->max_consec_failures) {
       /* We have hit a failed server, stop counting */
       break;
     }
@@ -1035,63 +1052,6 @@ static ares_server_t *ares_random_best_server(ares_channel_t *channel)
   return NULL;
 }
 
-/* Pick a random unused server from the list, if no such server is available
- * choose randomly. This should only be called when it is know that all servers
- * have failed. */
-static ares_server_t *ares_random_failed_server(ares_channel_t *channel,
-                                                ares_query_t   *query)
-{
-  unsigned char      c;
-  size_t             server_count;
-  size_t             target_server_count;
-  ares_slist_node_t *node;
-  size_t             num_servers_to_pick_from;
-  size_t             num_servers = ares_slist_len(channel->servers);
-  size_t             num_attempted_servers =
-    ares_array_len(query->failed_servers_attempted);
-  ares_server_t *server;
-  ares_bool_t    skip_attempted;
-
-  /* If we haven't tried all the servers, choose randomly from the unused set.
-   * Otherwise choose randomly from all servers. */
-  if (num_servers != num_attempted_servers) {
-    num_servers_to_pick_from = num_servers - num_attempted_servers;
-    skip_attempted           = ARES_TRUE;
-  } else {
-    num_servers_to_pick_from = num_servers;
-    skip_attempted           = ARES_FALSE;
-  }
-
-  /* Silence coverity, not possible */
-  if (num_servers == 0) {
-    return NULL;
-  }
-
-  ares_rand_bytes(channel->rand_state, &c, 1);
-
-  server_count        = c;
-  target_server_count = server_count % num_servers_to_pick_from;
-
-  server_count = 0;
-  for (node = ares_slist_node_first(channel->servers); node != NULL;
-       node = ares_slist_node_next(node)) {
-    server = ares_slist_node_val(node);
-
-    /* If this query has already been sent to this server, skip it */
-    if (skip_attempted && ares_query_sent_to_server(query, server->idx)) {
-      continue;
-    }
-
-    if (server_count == target_server_count) {
-      return server;
-    }
-
-    server_count++;
-  }
-
-  return NULL;
-}
-
 static void server_probe_cb(void *arg, ares_status_t status, size_t timeouts,
                             const ares_dns_record_t *dnsrec)
 {
@@ -1114,7 +1074,7 @@ static void ares_probe_failed_server(ares_channel_t      *channel,
 
   /* If no servers have failures, or we're not configured with a server retry
    * chance, then nothing to probe */
-  if ((last_server != NULL && !last_server->is_failed) ||
+  if ((last_server != NULL && last_server->consec_failures < channel->max_consec_failures) ||
       channel->server_retry_chance == 0) {
     return;
   }
@@ -1138,7 +1098,8 @@ static void ares_probe_failed_server(ares_channel_t      *channel,
   for (node = ares_slist_node_first(channel->servers); node != NULL;
        node = ares_slist_node_next(node)) {
     ares_server_t *node_val = ares_slist_node_val(node);
-    if (node_val != NULL && node_val->is_failed && !node_val->probe_pending &&
+    if (node_val != NULL && node_val->consec_failures >= channel->max_consec_failures &&
+        !node_val->probe_pending &&
         ares_timedout(&now, &node_val->next_retry_time) && node_val != server) {
       /* Enqueue an identical query onto the specified server without honoring
        * the cache or allowing retries.  We want to make sure it only attempts
@@ -1277,78 +1238,31 @@ static ares_status_t ares_conn_query_write(ares_conn_t          *conn,
   return ares_conn_flush(conn);
 }
 
-ares_server_t *ares_select_server(ares_channel_t *channel, ares_query_t *query)
-{
-  ares_server_t     *server           = NULL;
-  ares_server_t     *potential_server = NULL;
-  ares_slist_node_t *node;
-  size_t            *server_idx = NULL;
-  ares_status_t      status;
 
-  if (channel->rotate) {
-    /* Pick a random non-failed server. */
-    server = ares_random_best_server(channel);
-    if (server == NULL) {
-      /* If there are no non-failed servers, pick a random failed server */
-      server = ares_random_failed_server(channel, query);
-    }
-  } else if (ares_slist_len(channel->servers) !=
-             ares_array_len(query->failed_servers_attempted)) {
-    /* Find the first server in the list that is one of:
-     * - Not failed
-     * - Not previously been sent to */
-    for (node = ares_slist_node_first(channel->servers); node != NULL;
-         node = ares_slist_node_next(node)) {
-      potential_server = ares_slist_node_val(node);
-      if (!potential_server->is_failed ||
-          !ares_query_sent_to_server(query, potential_server->idx)) {
-        server = potential_server;
-        break;
-      }
-    }
-
-  } else {
-    /* If we have tried all servers, pick the first one */
-    server = ares_slist_first_val(channel->servers);
-  }
-
-  if (server == NULL) {
-    DEBUGF(fprintf(stderr, "Error: unable to find a server to send to\n"));
-  }
-
-  /* If we have selected a failed server, we need to add it to the list of
-   * servers that have been attempted.  This is used to prevent us from
-   * trying the same failed server repeatedly without trying others. */
-  if (server != NULL && server->is_failed &&
-      !ares_query_sent_to_server(query, server->idx)) {
-    status = ares_array_insert_last((void **)&server_idx,
-                                    query->failed_servers_attempted);
-    if (status != ARES_SUCCESS) {
-      return NULL;
-    }
-    *server_idx = server->idx;
-  }
-
-  return server;
-}
 
 ares_status_t ares_send_query(ares_server_t *requested_server,
                               ares_query_t *query, const ares_timeval_t *now)
 {
   ares_channel_t *channel = query->channel;
-  ares_server_t  *server;
+  ares_server_t  *server  = NULL;
   ares_conn_t    *conn;
   size_t          timeplus;
   ares_status_t   status;
   ares_bool_t     probe_downed_server = ARES_TRUE;
 
-
   /* Choose the server to send the query to */
   if (requested_server != NULL) {
     server = requested_server;
   } else {
-    /* If rotate is turned on, do a random selection */
-    server = ares_select_server(channel, query);
+    if (channel->rotate) {
+      /* Randomly select from healthy servers for load balancing */
+      server = ares_random_best_server(channel);
+    }
+    if (server == NULL) {
+      /* Either rotate disabled, or no healthy servers. Choose the first server.
+       * The list is kept sorted, so this gives us the best available server. */
+      server = ares_slist_first_val(channel->servers);
+    }
   }
 
   if (server == NULL) {
@@ -1550,7 +1464,6 @@ void ares_free_query(ares_query_t *query)
   query->callback = NULL;
   query->arg      = NULL;
   /* Deallocate the memory associated with the query */
-  ares_array_destroy(query->failed_servers_attempted);
   ares_dns_record_destroy(query->query);
 
   ares_free(query);
