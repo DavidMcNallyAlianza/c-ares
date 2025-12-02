@@ -64,9 +64,10 @@ is still down.
 Administrators may customize these settings via `ARES_OPT_SERVER_FAILOVER`.
 
 Additionally, when using `ARES_OPT_ROTATE` or a system configuration option of
-`rotate`, c-ares will randomly select a server from the list of highest priority
-servers based on failures.  Any servers in any lower priority bracket will be
-omitted from the random selection.
+`rotate`, c-ares will randomly select from healthy (non-failed) servers for
+load balancing. When rotate is disabled, or when all servers have failed,
+c-ares will use the first server in the sorted list, which provides the best
+available server based on the current health metrics.
 
 This feature requires the c-ares channel to persist for the lifetime of the
 application.

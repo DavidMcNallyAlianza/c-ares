@@ -547,6 +547,16 @@ CARES_EXTERN void ares_getaddrinfo(ares_channel_t *channel, const char *node,
 
 CARES_EXTERN void ares_freeaddrinfo(struct ares_addrinfo *ai);
 
+CARES_EXTERN void         ares_set_min_server_successes(ares_channel_t *channel,
+                                                        unsigned int minimum_successes);
+
+CARES_EXTERN unsigned int ares_get_min_server_successes(ares_channel_t *channel);
+
+CARES_EXTERN void         ares_set_max_server_failures(ares_channel_t *channel,
+                                                       unsigned int maximum_failures);
+
+CARES_EXTERN unsigned int ares_get_max_server_failures(ares_channel_t *channel);
+
 /*
  * Virtual function set to have user-managed socket IO.
  * Note that all functions need to be defined, and when

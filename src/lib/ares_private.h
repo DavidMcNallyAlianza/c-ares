@@ -141,9 +141,12 @@ W32_FUNC const char *_w32_GetHostsFile(void);
 
 /* Default values for server failover behavior. We retry failed servers with
  * a 10% probability and a minimum delay of 5 seconds between retries.
+ * We will promote/demote servers after 1 success/failure.
  */
-#define DEFAULT_SERVER_RETRY_CHANCE 10
-#define DEFAULT_SERVER_RETRY_DELAY  5000
+#define DEFAULT_SERVER_RETRY_CHANCE  10
+#define DEFAULT_SERVER_RETRY_DELAY   5000
+#define DEFAULT_SERVER_MIN_SUCCESSES 1
+#define DEFAULT_SERVER_MAX_FAILURES  1
 
 struct ares_query;
 typedef struct ares_query ares_query_t;
@@ -285,14 +288,22 @@ struct ares_channeldata {
   ares_qcache_t                      *qcache;
 
   /* Fields controlling server failover behavior.
-   * The retry chance is the probability (1/N) by which we will retry a failed
-   * server instead of the best server when selecting a server to send queries
-   * to.
+   * The retry chance is the probability (1/N) by which we will duplicate a
+   * query to send to a failed server to determine if it is up again.
+   *
    * The retry delay is the minimum time in milliseconds to wait between doing
    * such retries (applied per-server).
+   *
+   * The min_consec_successes is the minimum number of consecutive successful
+   * queries before a server is considered "up" again.
+   *
+   * The max_consec_failures is the maximum number of consecutive failed
+   * queries before a server is considered "down" again.
    */
   unsigned short                      server_retry_chance;
   size_t                              server_retry_delay;
+  size_t                              min_consec_successes;
+  size_t                              max_consec_failures;
 
   /* Callback triggered when a server has a successful or failed response */
   ares_server_state_callback          server_state_cb;
@@ -313,11 +324,11 @@ struct ares_channeldata {
 };
 
 /* Does the domain end in ".onion" or ".onion."? Case-insensitive. */
-ares_bool_t   ares_is_onion_domain(const char *name);
+ares_bool_t    ares_is_onion_domain(const char *name);
 
 /* Returns one of the normal ares status codes like ARES_SUCCESS */
-ares_status_t ares_send_query(ares_server_t *requested_server /* Optional */,
-                              ares_query_t *query, const ares_timeval_t *now);
+ares_status_t  ares_send_query(ares_server_t *requested_server /* Optional */,
+                               ares_query_t *query, const ares_timeval_t *now);
 ares_status_t ares_requeue_query(ares_query_t *query, const ares_timeval_t *now,
                                  ares_status_t            status,
                                  ares_bool_t              inc_try_count,

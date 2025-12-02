@@ -1,0 +1,75 @@
+.\" Copyright (C) 2025 by c-ares project and contributors
+.\" SPDX-License-Identifier: MIT
+.\"
+.TH ARES_SET_SERVER_FAILOVER 3 "28 November 2025"
+.SH NAME
+ares_set_min_server_successes, ares_get_min_server_successes,
+ares_set_max_server_failures, ares_get_max_server_failures \- Configure server rise/fall behavior
+.SH SYNOPSIS
+.nf
+#include <ares.h>
+
+void ares_set_min_server_successes(ares_channel_t *\fIchannel\fP,
+                                   unsigned int \fIminimum_successes\fP);
+
+unsigned int ares_get_min_server_successes(ares_channel_t *\fIchannel\fP);
+
+void ares_set_max_server_failures(ares_channel_t *\fIchannel\fP,
+                                  unsigned int \fImaximum_failures\fP);
+
+unsigned int ares_get_max_server_failures(ares_channel_t *\fIchannel\fP);
+.fi
+.SH DESCRIPTION
+The \fBares_set_min_server_successes\fP function sets the minimum number of
+consecutive successful queries required before a previously failed server is
+promoted back to the "up" state. This allows fine-tuning of server recovery
+behavior. The default value is 1.
+
+The \fBares_get_min_server_successes\fP function retrieves the current minimum
+success threshold for the given channel. Returns 0 if the channel is NULL.
+
+The \fBares_set_max_server_failures\fP function sets the maximum number of
+consecutive query failures before a server is demoted to the "down" state and
+deprioritized for query routing. This allows fine-tuning of server failure
+detection sensitivity. The default value is 1.
+
+The \fBares_get_max_server_failures\fP function retrieves the current maximum
+failure threshold for the given channel. Returns 0 if the channel is NULL.
+
+These settings work in conjunction with the server failover options to provide
+dynamic server health management. When a server reaches the maximum failure
+threshold, it is marked as failed and moved to the end of the server priority
+list. It will only be retried according to the retry chance and delay settings
+(see \fBARES_OPT_SERVER_FAILOVER\fP). Once a failed server successfully responds
+for the minimum number of consecutive successes, it is promoted back to healthy
+status and restored to its original priority.
+
+.SH EXAMPLE
+.nf
+ares_channel_t *channel;
+int status;
+
+status = ares_init(&channel);
+if (status != ARES_SUCCESS) {
+    fprintf(stderr, "ares_init: %s\\n", ares_strerror(status));
+    return 1;
+}
+
+/* Require 3 consecutive successes before promoting a failed server */
+ares_set_min_server_successes(channel, 3);
+
+/* Demote server after 2 consecutive failures */
+ares_set_max_server_failures(channel, 2);
+
+/* Query current settings */
+unsigned int min_success = ares_get_min_server_successes(channel);
+unsigned int max_fail = ares_get_max_server_failures(channel);
+printf("Server rise/fall: %u successes, %u failures\\n", min_success, max_fail);
+.fi
+.SH AVAILABILITY
+These functions were added in c-ares 1.35.0
+.SH SEE ALSO
+.BR ares_init_options (3),
+.BR ares_set_servers (3),
+.BR ares_set_servers_csv (3),
+.BR ares_set_server_state_callback (3)
